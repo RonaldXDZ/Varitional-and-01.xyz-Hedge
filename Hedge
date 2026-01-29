@@ -29,7 +29,7 @@ class VisualMarker(tk.Toplevel):
 class HedgeTool:
     def __init__(self, root):
         self.root = root
-        self.root.title("對沖神器 v4.8 - 序列執行版")
+        self.root.title("Hedge Tools")
         self.root.geometry("400x500")  # 加大窗口以容纳新控件
         self.root.attributes("-topmost", True)
 
