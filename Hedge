@@ -1,0 +1,143 @@
+import ctypes
+import threading
+import time
+import tkinter as tk
+import pyautogui
+import keyboard
+
+# 強制啟用 DPI 意識，確保座標不偏移
+try:
+    ctypes.windll.shcore.SetProcessDpiAwareness(1)
+except:
+    ctypes.windll.user32.SetProcessDPIAware()
+
+class VisualMarker(tk.Toplevel):
+    """建立穿透點擊的圓圈標記"""
+    def __init__(self, x, y, color):
+        super().__init__()
+        self.overrideredirect(True)
+        self.attributes("-topmost", True)
+        self.attributes("-transparentcolor", "white")
+        self.config(bg="white")
+        self.attributes("-alpha", 0.7)
+        size = 26
+        self.geometry(f"{size}x{size}+{int(x-size//2)}+{int(y-size//2)}")
+        canvas = tk.Canvas(self, width=size, height=size, bg="white", highlightthickness=0)
+        canvas.pack()
+        canvas.create_oval(2, 2, size-2, size-2, outline=color, width=3)
+
+class HedgeTool:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("對沖神器 v4.8 - 序列執行版")
+        self.root.geometry("400x500")  # 加大窗口以容纳新控件
+        self.root.attributes("-topmost", True)
+
+        self.pos_a = None
+        self.pos_b = None
+        self.marker_a = None
+        self.marker_b = None
+
+        self.delay_move = tk.DoubleVar(value=0.02)
+        self.delay_press = tk.DoubleVar(value=0.05)
+        self.delay_between = tk.DoubleVar(value=0.02)
+        self.repeat_count = tk.IntVar(value=1)
+        self.status_var = tk.StringVar(value="就緒")
+
+        tk.Label(root, text="【步驟 1: 設定座標】", font=('Arial', 10, 'bold')).pack(pady=10)
+        tk.Button(root, text="設定 A 點 (多頭)", command=lambda: self.get_pos('a'), bg="#e1f5fe").pack(fill='x', padx=50)
+        tk.Button(root, text="設定 B 點 (空頭)", command=lambda: self.get_pos('b'), bg="#fff3e0").pack(fill='x', padx=50, pady=5)
+
+        tk.Label(root, text="【步驟 2: 執行控制】").pack(pady=10)
+        tk.Button(root, text="⚡️ 點擊對沖 (F9) ⚡️", bg="#f44336", fg="white", font=('Arial', 10, 'bold'), height=2, command=self.run_hedge).pack(fill='x', padx=50)
+        tk.Button(root, text="清除所有標記", command=self.clear_all).pack(pady=10)
+
+        # 添加延时调节滑块
+        frame = tk.Frame(root)
+        frame.pack(pady=10)
+
+        tk.Label(frame, text="移動延時:").grid(row=0, column=0, padx=5, pady=5)
+        tk.Scale(frame, from_=0.01, to=0.2, resolution=0.01, orient=tk.HORIZONTAL,
+                 variable=self.delay_move, length=150).grid(row=0, column=1)
+
+        tk.Label(frame, text="按壓延時:").grid(row=1, column=0, padx=5, pady=5)
+        tk.Scale(frame, from_=0.03, to=0.15, resolution=0.01, orient=tk.HORIZONTAL,
+                 variable=self.delay_press, length=150).grid(row=1, column=1)
+
+        tk.Label(frame, text="點間間隔:").grid(row=2, column=0, padx=5, pady=5)
+        tk.Scale(frame, from_=0.01, to=0.3, resolution=0.01, orient=tk.HORIZONTAL,
+                 variable=self.delay_between, length=150).grid(row=2, column=1)
+
+        # 添加执行次数输入
+        tk.Label(root, text="執行次數:").pack(pady=5)
+        tk.Entry(root, textvariable=self.repeat_count, width=8, justify='center').pack()
+
+        # 添加状态提示
+        tk.Label(root, textvariable=self.status_var, fg="blue", font=('Arial', 10)).pack(pady=10)
+
+        # 替换键盘监听为热键
+        keyboard.add_hotkey('f9', self.run_hedge, suppress=True)
+
+    def get_pos(self, target):
+        self.root.title("3秒後擷取座標...")
+        time.sleep(3)
+        x, y = pyautogui.position()
+        if target == 'a':
+            self.pos_a = (x, y)
+            if self.marker_a: self.marker_a.destroy()
+            self.marker_a = VisualMarker(x, y, "blue")
+        else:
+            self.pos_b = (x, y)
+            if self.marker_b: self.marker_b.destroy()
+            self.marker_b = VisualMarker(x, y, "red")
+        self.root.title("對沖神器 v4.8")
+
+    def clear_all(self):
+        if self.marker_a: self.marker_a.destroy()
+        if self.marker_b: self.marker_b.destroy()
+        self.pos_a = self.pos_b = None
+
+    def run_hedge(self):
+        if not self.pos_a or not self.pos_b:
+            self.status_var.set("錯誤: 未設定 A 或 B 點")
+            return
+
+        def execute_sequence():
+            mouse_event = ctypes.windll.user32.mouse_event
+            set_cursor = ctypes.windll.user32.SetCursorPos
+
+            count = self.repeat_count.get()
+            self.status_var.set(f"執行中... ({count}次)")
+            self.root.update()
+
+            for i in range(count):
+                # --- 執行第一個點擊 (A 點) ---
+                set_cursor(int(self.pos_a[0]), int(self.pos_a[1]))
+                time.sleep(self.delay_move.get())
+                mouse_event(0x0002, 0, 0, 0, 0)  # 左鍵按下
+                time.sleep(self.delay_press.get())
+                mouse_event(0x0004, 0, 0, 0, 0)  # 左鍵放開
+
+                time.sleep(self.delay_between.get())
+
+                # --- 瞬間切換至第二個點擊 (B 點) ---
+                set_cursor(int(self.pos_b[0]), int(self.pos_b[1]))
+                time.sleep(self.delay_move.get())
+                mouse_event(0x0002, 0, 0, 0, 0)  # 左鍵按下
+                time.sleep(self.delay_press.get())
+                mouse_event(0x0004, 0, 0, 0, 0)  # 左鍵放開
+
+                if count > 1 and i < count - 1:
+                    time.sleep(0.1)  # 多次執行時的額外間隔
+
+                print(f"對沖指令已發送 (第 {i+1} 次): A({self.pos_a}) -> B({self.pos_b})")
+
+            self.status_var.set(f"完成 ({count}次) - {time.strftime('%H:%M:%S')}")
+
+        # 使用單一線程執行序列，避免多線程搶奪滑鼠
+        threading.Thread(target=execute_sequence).start()
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = HedgeTool(root)
+    root.mainloop()
